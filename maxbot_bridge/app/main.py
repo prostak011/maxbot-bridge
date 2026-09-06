@@ -109,9 +109,9 @@ async def run() -> None:
 
     names = NameStore(DATA_DIR)
     bridge = Bridge(settings, names)
-    bridge.qr_provider = qr_provider  # для страницы /auth (qr.svg)
     sms_provider = WebSmsCodeProvider()
     qr_provider = WebQrProvider()
+    bridge.qr_provider = qr_provider  # для страницы /auth (qr.svg)
     api = HttpApi(settings, names, sms_provider, bridge)
     runner = await api.start(settings.http_port)
 
