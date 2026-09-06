@@ -129,7 +129,6 @@ async def run() -> None:
         return
 
     stop_event = asyncio.Event()
-    switch_task: asyncio.Task | None = None
 
     def request_stop() -> None:
         log.info("получен сигнал остановки")
@@ -151,6 +150,7 @@ async def run() -> None:
             @client.on_start()
             async def on_start(c) -> None:  # type: ignore[no-untyped-def]
                 bridge.connected = True
+                qr_provider.reset()  # сбросить qr_waiting/qr_url после успешного входа
                 await bridge.bootstrap_chats(c)
 
             @client.on_disconnect()
@@ -201,7 +201,7 @@ async def run() -> None:
 
     async def switch_method(new_method: str) -> bool:
         """Переключить способ входа на лету: отменить клиент, запустить новый."""
-        nonlocal current_task, method, switch_task
+        nonlocal current_task, method
         if new_method == method:
             return True
         log.info("переключение способа входа: %s → %s", method, new_method)

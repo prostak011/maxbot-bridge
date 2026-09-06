@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 from typing import Any, Awaitable, Callable
 
 import segno
@@ -114,9 +115,22 @@ async function poll(){try{
  document.getElementById('loginblocks').style.display=j.connected?'none':'block';
  if(j.connected&&j.account){document.getElementById('whoami').textContent='ID аккаунта: '+j.account;}
  document.getElementById('phonehint').textContent=j.phone?('Номер: '+j.phone):'';
- document.getElementById('smsstatus').textContent=j.need_code?'Код запрошен — введите его из SMS ниже.'
-   :'Код запрашивается при старте. Если SMS не приходит — подождите 5–10 минут и нажмите кнопку.';
- document.getElementById('reqbtn').disabled=j.need_code;
+ // SMS state with cooldown
+ const btn=document.getElementById('reqbtn');
+ if(j.need_code){
+   btn.disabled=true;
+   document.getElementById('smsstatus').textContent='Код запрошен — введите его из SMS ниже.';
+ } else if(j.sms_cooldown>0){
+   btn.disabled=true;
+   const m=Math.floor(j.sms_cooldown/60);
+   const s=j.sms_cooldown%60;
+   document.getElementById('smsstatus').textContent='Подождите '+m+' мин '+s+' сек перед повторным запросом.';
+   btn.textContent='Подождите '+m+':'+(s<10?'0':'')+s;
+ } else {
+   btn.disabled=false;
+   btn.textContent='Запросить SMS-код';
+   document.getElementById('smsstatus').textContent='Нажмите, чтобы запросить SMS-код. Between requests: 5 min cooldown.';
+ }
  // QR state
  if(mode==='qr'){
    if(j.qr_waiting && j.qr_url){
@@ -175,6 +189,9 @@ class HttpApi:
         self._switch_method: Callable[[str], Awaitable[bool]] | None = None
         self._request_sms_code: Callable[[], Awaitable[bool]] | None = None
         self._request_qr: Callable[[], Awaitable[bool]] | None = None
+        # Cooldown для SMS: 5 минут между запросами
+        self._sms_last_request: float = 0.0
+        self._sms_cooldown: float = 300.0  # 5 минут
 
         self.app = web.Application()
         self.app.router.add_get("/health", self.health)
@@ -241,6 +258,9 @@ class HttpApi:
         contact = getattr(me, "contact", None) if me else None
         account = getattr(contact, "id", None) or getattr(me, "id", None)
         qr_provider = getattr(self.bridge, "qr_provider", None)
+        # SMS cooldown
+        sms_elapsed = time.time() - self._sms_last_request
+        sms_cooldown_left = max(0, int(self._sms_cooldown - sms_elapsed))
         return web.json_response(
             {
                 "mode": self._get_method(),
@@ -252,6 +272,7 @@ class HttpApi:
                 "qr_updated": int(getattr(qr_provider, "updated_at", 0.0)),
                 "qr_waiting": getattr(qr_provider, "waiting", False),
                 "qr_expired": getattr(qr_provider, "expired", False),
+                "sms_cooldown": sms_cooldown_left,
             }
         )
 
@@ -307,10 +328,19 @@ class HttpApi:
 
     async def auth_request_code(self, request: web.Request) -> web.Response:
         """Явный запрос нового SMS-кода (перезапуск клиента в sms-режиме)."""
+        # Проверка cooldown
+        elapsed = time.time() - self._sms_last_request
+        if elapsed < self._sms_cooldown:
+            wait = int(self._sms_cooldown - elapsed)
+            return web.json_response(
+                {"ok": False, "error": f"Подождите {wait} сек перед повторным запросом SMS-кода"},
+                status=429,
+            )
         if self._request_sms_code is None:
             return web.json_response(
                 {"ok": False, "error": "контроллер не готов"}, status=503
             )
+        self._sms_last_request = time.time()
         ok = await self._request_sms_code()
         return web.json_response(
             {"ok": ok, "message": "Новый SMS-код запрошен" if ok else "не удалось"}

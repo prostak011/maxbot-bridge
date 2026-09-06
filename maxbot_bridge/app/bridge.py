@@ -124,13 +124,14 @@ class Bridge:
                 kwargs["reply_to"] = int(reply_to)
             await client.send_message(**kwargs)
             return True
-        except TypeError:
+        except TypeError as first_err:
             # некоторые версии pymax: send_message(chat_id, text)
+            log.debug("send_message(**kwargs) TypeError (%s), пробуем позиционные аргументы", first_err)
             try:
                 await client.send_message(int(chat_id), text)
                 return True
             except Exception as exc:
-                log.error("ошибка send_message: %s", exc)
+                log.error("ошибка send_message (фолбэк): %s [первая ошибка: %s]", exc, first_err)
                 return False
         except Exception as exc:
             log.error("ошибка send_text(%s): %s", chat_id, exc)

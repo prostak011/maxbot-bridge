@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 DATA_DIR = Path("/data")
@@ -12,11 +13,38 @@ OPTIONS_FILE = DATA_DIR / "options.json"
 VALID_LOG_LEVELS = {"INFO", "DEBUG", "WARNING", "ERROR"}
 
 
+def normalize_phone(raw: str) -> str:
+    """Нормализовать телефон в формат +7XXXXXXXXXX.
+
+    Принимает: +79967857133, 89967857133, +7 (996) 785-71-33 и т.д.
+    Возвращает: +79967857133 или пустую строку при невалидном вводе.
+    """
+    digits = re.sub(r"[^\d]", "", raw)
+    if not digits:
+        return ""
+    # 8XXXXXXXXXX (11 цифр, начинается на 8) → +7 + 10 цифр
+    if len(digits) == 11 and digits.startswith("8"):
+        return "+7" + digits[1:]
+    # 7XXXXXXXXXX (11 цифр, начинается на 7) → + + всё
+    if len(digits) == 11 and digits.startswith("7"):
+        return "+" + digits
+    # 10 цифр без префикса → +7 + 10 цифр
+    if len(digits) == 10:
+        return "+7" + digits
+    # Уже с + — возвращаем как есть (с +)
+    if raw.strip().startswith("+") and len(digits) >= 10:
+        return "+" + digits
+    # Фолбэк: возвращаем цифры с +
+    if len(digits) >= 10:
+        return "+" + digits[-10:] if len(digits) > 10 else "+" + digits
+    return ""
+
+
 class Settings:
     """Плоская обёртка над options.json с безопасными значениями по умолчанию."""
 
     def __init__(self, raw: dict) -> None:
-        self.max_phone: str = (raw.get("max_phone") or "").strip()
+        self.max_phone: str = normalize_phone((raw.get("max_phone") or "").strip())
         self.webhook_url: str = (raw.get("webhook_url") or "").strip().rstrip("/")
         self.webhook_token: str = (raw.get("webhook_token") or "").strip()
         # 0 = чат утверждения не задан
