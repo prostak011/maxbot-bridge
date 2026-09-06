@@ -1,0 +1,46 @@
+# https://developers.home-assistant.io/docs/apps/configuration/
+name: MaxBot Bridge
+version: "0.1.0"
+slug: maxbot_bridge
+description: >-
+  Userbot мессенджера MAX (pymax) как мост к OpenClaw: слушает все чаты,
+  распознаёт названия чатов и имена участников (с режимом обучения),
+  передаёт текст и фото в вебхук, принимает ответы через локальный HTTP API.
+arch:
+  - aarch64
+  - amd64
+startup: services
+boot: auto
+init: false
+url: https://github.com/maxbot-bridge/maxbot-bridge
+ports:
+  8099/tcp: 8099
+ports_description:
+  8099/tcp: "HTTP API и страница ввода SMS-кода"
+homeassistant_api: true
+hassio_api: false
+apparmor: false
+map:
+  - share:rw
+options:
+  max_phone: ""
+  webhook_url: ""
+  webhook_token: ""
+  approval_chat_id: 0
+  ignore_chats: []
+  auto_reply: false
+  max_2fa_password: ""
+  media_max_mb: 20
+  log_level: INFO
+schema:
+  max_phone: str
+  webhook_url: str?
+  webhook_token: str?
+  approval_chat_id: int?
+  ignore_chats:
+    - int?
+  auto_reply: bool?
+  max_2fa_password: str?
+  media_max_mb: float?
+  log_level: list(INFO|DEBUG|WARNING|ERROR)?
+image: ghcr.io/maxbot-bridge/maxbot_bridge
