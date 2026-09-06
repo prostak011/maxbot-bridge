@@ -23,6 +23,7 @@ from .auth import OptionsPasswordProvider, WebQrProvider, WebSmsCodeProvider
 from .bridge import Bridge
 from .http_api import HttpApi
 from .names import NameStore
+from .qr_flow import ManualQrAuthFlow
 from .settings import DATA_DIR, load_settings
 
 log = logging.getLogger("maxbot")
@@ -60,7 +61,7 @@ def save_method(method: str) -> None:
 def build_client(settings, method: str, sms_provider, qr_provider):  # noqa: ANN001
     """Создать клиент pymax выбранного способа входа.
 
-    qr  → WebClient (WebSocket, QR-вход, устройство WEB)
+    qr  → WebClient (WebSocket, QR-вход, устройство WEB) + ManualQrAuthFlow
     sms → Client (TCP, вход по SMS-коду)
     """
     from pymax import Client, WebClient, ExtraConfig
@@ -71,13 +72,12 @@ def build_client(settings, method: str, sms_provider, qr_provider):  # noqa: ANN
         else None
     )
     work_dir = str(Path(settings.work_dir))
-    # Pass our log level to pymax for more detailed logs when needed
     pymax_extra = ExtraConfig(log_level=settings.log_level)
 
     if method == "qr":
-        kwargs: dict = {"qr_provider": qr_provider, "work_dir": work_dir}
-        if password_provider:
-            kwargs["password_provider"] = password_provider
+        # Ручной QR-вход: 1 запрос на QR + 1 запрос на подтверждение (без polling)
+        auth_flow = ManualQrAuthFlow(qr_provider=qr_provider, password_provider=password_provider)
+        kwargs: dict = {"auth_flow": auth_flow, "work_dir": work_dir}
         kwargs["extra_config"] = pymax_extra
         return WebClient(session_name="main.db", **kwargs)
 
@@ -174,11 +174,17 @@ async def run() -> None:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                log.error("клиент упал: %s — перезапуск через %s с", exc, RESTART_DELAY)
+                log.error("клиент упал: %s", exc)
                 bridge.connected = False
-                # Reset QR provider so that the page knows the QR is no longer valid
-                if hasattr(bridge, 'qr_provider'):
-                    bridge.qr_provider.reset()
+                qr_provider.reset()
+                # Если ошибка связана с QR — НЕ перезапускаем автоматически.
+                # Пользователь должен нажать «Запросить QR» на странице /auth.
+                is_qr_error = "QR" in str(exc) or method == "qr"
+                if is_qr_error:
+                    log.info("QR-ошибка — ждём ручного запроса от пользователя")
+                    await stop_event.wait()
+                    break
+                # Для других ошибок — перезапуск с задержкой
                 try:
                     await asyncio.wait_for(stop_event.wait(), timeout=RESTART_DELAY)
                 except asyncio.TimeoutError:
@@ -213,10 +219,25 @@ async def run() -> None:
 
     async def request_sms_code() -> bool:
         """Явный запрос нового SMS-кода: перезапуск в sms-режиме."""
-        nonlocal current_task, method, switch_task
+        nonlocal current_task, method
         log.info("ручной запрос SMS-кода (перезапуск клиента в sms-режиме)")
         method = "sms"
         save_method("sms")
+        current_task.cancel()
+        try:
+            await current_task
+        except asyncio.CancelledError:
+            pass
+        current_task = asyncio.create_task(client_loop())
+        return True
+
+    async def request_qr() -> bool:
+        """Явный запрос нового QR: перезапуск в qr-режиме."""
+        nonlocal current_task, method
+        log.info("ручной запрос QR (перезапуск клиента в qr-режиме)")
+        method = "qr"
+        save_method("qr")
+        qr_provider.reset()
         current_task.cancel()
         try:
             await current_task
@@ -229,6 +250,7 @@ async def run() -> None:
         get_method=lambda: method,
         switch_method=switch_method,
         request_sms_code=request_sms_code,
+        request_qr=request_qr,
     )
 
     await stop_event.wait()

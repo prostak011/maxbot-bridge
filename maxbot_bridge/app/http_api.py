@@ -47,6 +47,7 @@ AUTH_PAGE = """<!DOCTYPE html>
  input,button{font-size:16px;padding:10px;border-radius:8px;border:1px solid #bbb;width:100%;box-sizing:border-box;margin-top:8px}
  button{background:#0b6bcb;color:#fff;border:none;cursor:pointer}
  button.secondary{background:#666}
+ button.green{background:#2e7d32}
  button:disabled{opacity:.5;cursor:default}
  #msg{margin-top:14px;padding:12px;border-radius:8px;display:none}
  .ok{background:#e6f6e6}.err{background:#fde8e8}.warn{background:#fff7e0}
@@ -66,12 +67,26 @@ AUTH_PAGE = """<!DOCTYPE html>
 </div>
 
 <div class="panel active" id="panel-qr">
-  <div class="qrbox"><img id="qrimg" alt="QR не получен" src="/auth/qr.svg"></div>
-  <div class="hint">
-    1. Откройте приложение <b>MAX</b> на телефоне<br>
-    2. <b>Настройки → Устройства / Привязать устройство</b><br>
-    3. Наведите камеру на QR-код<br>
-    4. Подтвердите вход
+  <div id="qr-placeholder">
+    <button id="reqqrbtn" onclick="requestQr()">Запросить QR-код</button>
+    <div class="hint">Нажмите кнопку, чтобы получить QR-код. Сканируйте его приложением MAX
+    (Настройки → Устройства → Привязать устройство).</div>
+  </div>
+  <div id="qr-active" style="display:none">
+    <div class="qrbox"><img id="qrimg" alt="QR-код" src="/auth/qr.svg"></div>
+    <div class="hint">
+      1. Откройте приложение <b>MAX</b> на телефоне<br>
+      2. <b>Настройки → Устройства / Привязать устройство</b><br>
+      3. Наведите камеру на QR-код<br>
+      4. Подтвердите вход<br>
+      5. <b>Нажмите кнопку «Подтвердить»</b> ниже
+    </div>
+    <button class="green" id="confirmbtn" onclick="confirmQr()">✅ Подтвердить сканирование</button>
+    <button class="secondary" onclick="requestQr()">🔄 Запросить новый QR</button>
+  </div>
+  <div id="qr-expired" style="display:none">
+    <div class="hint" style="color:#c62828">QR-код истёк или не был отсканирован.</div>
+    <button onclick="requestQr()">Запросить новый QR</button>
   </div>
 </div>
 
@@ -102,10 +117,41 @@ async function poll(){try{
  document.getElementById('smsstatus').textContent=j.need_code?'Код запрошен — введите его из SMS ниже.'
    :'Код запрашивается при старте. Если SMS не приходит — подождите 5–10 минут и нажмите кнопку.';
  document.getElementById('reqbtn').disabled=j.need_code;
- if(mode==='qr'){const img=document.getElementById('qrimg');
-   if(j.qr_url){img.src='/auth/qr.svg?v='+Math.floor(j.qr_updated||0);}
+ // QR state
+ if(mode==='qr'){
+   if(j.qr_waiting && j.qr_url){
+     document.getElementById('qr-placeholder').style.display='none';
+     document.getElementById('qr-active').style.display='block';
+     document.getElementById('qr-expired').style.display='none';
+     const img=document.getElementById('qrimg');
+     img.src='/auth/qr.svg?v='+Math.floor(j.qr_updated||0);
+   } else if(j.qr_expired){
+     document.getElementById('qr-placeholder').style.display='none';
+     document.getElementById('qr-active').style.display='none';
+     document.getElementById('qr-expired').style.display='block';
+   } else {
+     document.getElementById('qr-placeholder').style.display='block';
+     document.getElementById('qr-active').style.display='none';
+     document.getElementById('qr-expired').style.display='none';
+   }
  }}
  catch(e){}}
+async function requestQr(){
+ document.getElementById('qr-placeholder').style.display='none';
+ document.getElementById('qr-active').style.display='none';
+ document.getElementById('qr-expired').style.display='none';
+ msg('Запрашиваю QR-код...','warn');
+ try{const r=await fetch('/auth/request_qr',{method:'POST'});const j=await r.json();
+  if(j.ok){msg('QR запрошен — сканируйте и нажмите «Подтвердить»','ok');}
+  else{msg('Ошибка: '+j.error,'err');}}
+ catch(e){msg('Ошибка сети: '+e,'err');}}
+async function confirmQr(){
+ document.getElementById('confirmbtn').disabled=true;
+ msg('Подтверждаю сканирование...','warn');
+ try{const r=await fetch('/auth/confirm_qr',{method:'POST'});const j=await r.json();
+  msg(j.message,j.ok?'ok':'err');
+  if(!j.ok)document.getElementById('confirmbtn').disabled=false;}
+ catch(e){msg('Ошибка сети: '+e,'err');document.getElementById('confirmbtn').disabled=false;}}
 async function requestCode(){document.getElementById('reqbtn').disabled=true;msg('Запрашиваю новый код...','warn');
  try{const r=await fetch('/auth/request_code',{method:'POST'});const j=await r.json();
   msg(j.ok?'Новый код запрошен. Проверьте SMS/приложение MAX (код из СТАРОЙ SMS не подойдёт).':('Ошибка: '+j.error),j.ok?'ok':'err');}
@@ -128,6 +174,7 @@ class HttpApi:
         self._get_method: Callable[[], str] = lambda: "qr"
         self._switch_method: Callable[[str], Awaitable[bool]] | None = None
         self._request_sms_code: Callable[[], Awaitable[bool]] | None = None
+        self._request_qr: Callable[[], Awaitable[bool]] | None = None
 
         self.app = web.Application()
         self.app.router.add_get("/health", self.health)
@@ -137,6 +184,8 @@ class HttpApi:
         self.app.router.add_post("/auth/code", self.auth_code)
         self.app.router.add_post("/auth/method", self.auth_method)
         self.app.router.add_post("/auth/request_code", self.auth_request_code)
+        self.app.router.add_post("/auth/request_qr", self.auth_request_qr)
+        self.app.router.add_post("/auth/confirm_qr", self.auth_confirm_qr)
         self.app.router.add_get("/chats", self.chats)
         self.app.router.add_get("/names", self.names_dump)
         self.app.router.add_post("/send", self.send)
@@ -148,10 +197,12 @@ class HttpApi:
         get_method: Callable[[], str],
         switch_method: Callable[[str], Awaitable[bool]],
         request_sms_code: Callable[[], Awaitable[bool]],
+        request_qr: Callable[[], Awaitable[bool]],
     ) -> None:
         self._get_method = get_method
         self._switch_method = switch_method
         self._request_sms_code = request_sms_code
+        self._request_qr = request_qr
 
     def _authorized(self, request: web.Request) -> bool:
         token = self.settings.webhook_token
@@ -199,6 +250,8 @@ class HttpApi:
                 "need_code": self.sms.need_code,
                 "qr_url": getattr(qr_provider, "qr_url", None) or "",
                 "qr_updated": int(getattr(qr_provider, "updated_at", 0.0)),
+                "qr_waiting": getattr(qr_provider, "waiting", False),
+                "qr_expired": getattr(qr_provider, "expired", False),
             }
         )
 
@@ -262,6 +315,31 @@ class HttpApi:
         return web.json_response(
             {"ok": ok, "message": "Новый SMS-код запрошен" if ok else "не удалось"}
         )
+
+    async def auth_request_qr(self, request: web.Request) -> web.Response:
+        """Явный запрос нового QR-кода (перезапуск клиента в qr-режиме)."""
+        if self._request_qr is None:
+            return web.json_response(
+                {"ok": False, "error": "контроллер не готов"}, status=503
+            )
+        ok = await self._request_qr()
+        return web.json_response(
+            {"ok": ok, "message": "Новый QR запрошен" if ok else "не удалось"}
+        )
+
+    async def auth_confirm_qr(self, request: web.Request) -> web.Response:
+        """Подтверждение сканирования QR-кода пользователем."""
+        qr_provider = getattr(self.bridge, "qr_provider", None)
+        if qr_provider is None:
+            return web.json_response(
+                {"ok": False, "error": "QR провайдер не инициализирован"}, status=503
+            )
+        if not qr_provider.waiting:
+            return web.json_response(
+                {"ok": False, "error": "QR не запрошен или уже подтверждён"}, status=400
+            )
+        qr_provider.confirm()
+        return web.json_response({"ok": True, "message": "QR подтверждён, вход выполняется..."})
 
     async def chats(self, request: web.Request) -> web.Response:
         result = []
