@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration/
 name: MaxBot Bridge
-version: "0.2.1"
+version: "0.2.3"
 slug: maxbot_bridge
 description: >-
   Userbot мессенджера MAX (pymax) как мост к OpenClaw: слушает все чаты,

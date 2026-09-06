@@ -28,7 +28,7 @@ from .settings import DATA_DIR, load_settings
 log = logging.getLogger("maxbot")
 
 METHOD_FILE = DATA_DIR / "auth_method.json"
-RESTART_DELAY = 10.0
+RESTART_DELAY = 2.0
 
 
 def setup_logging(level: str) -> None:
@@ -63,7 +63,7 @@ def build_client(settings, method: str, sms_provider, qr_provider):  # noqa: ANN
     qr  → WebClient (WebSocket, QR-вход, устройство WEB)
     sms → Client (TCP, вход по SMS-коду)
     """
-    from pymax import Client, WebClient
+    from pymax import Client, WebClient, ExtraConfig
 
     password_provider = (
         OptionsPasswordProvider(settings.max_2fa_password)
@@ -71,11 +71,14 @@ def build_client(settings, method: str, sms_provider, qr_provider):  # noqa: ANN
         else None
     )
     work_dir = str(Path(settings.work_dir))
+    # Pass our log level to pymax for more detailed logs when needed
+    pymax_extra = ExtraConfig(log_level=settings.log_level)
 
     if method == "qr":
         kwargs: dict = {"qr_provider": qr_provider, "work_dir": work_dir}
         if password_provider:
             kwargs["password_provider"] = password_provider
+        kwargs["extra_config"] = pymax_extra
         return WebClient(session_name="main.db", **kwargs)
 
     kwargs = {
@@ -86,6 +89,7 @@ def build_client(settings, method: str, sms_provider, qr_provider):  # noqa: ANN
     }
     if password_provider:
         kwargs["password_provider"] = password_provider
+    kwargs["extra_config"] = pymax_extra
     return Client(**kwargs)
 
 
@@ -172,6 +176,9 @@ async def run() -> None:
             except Exception as exc:
                 log.error("клиент упал: %s — перезапуск через %s с", exc, RESTART_DELAY)
                 bridge.connected = False
+                # Reset QR provider so that the page knows the QR is no longer valid
+                if hasattr(bridge, 'qr_provider'):
+                    bridge.qr_provider.reset()
                 try:
                     await asyncio.wait_for(stop_event.wait(), timeout=RESTART_DELAY)
                 except asyncio.TimeoutError:
