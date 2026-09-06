@@ -12,7 +12,7 @@ arch:
 startup: services
 boot: auto
 init: false
-url: https://github.com/maxbot-bridge/maxbot-bridge
+url: https://github.com/prostak011/maxbot-bridge
 ports:
   8099/tcp: 8099
 ports_description:
@@ -43,4 +43,4 @@ schema:
   max_2fa_password: str?
   media_max_mb: float?
   log_level: list(INFO|DEBUG|WARNING|ERROR)?
-image: ghcr.io/maxbot-bridge/maxbot_bridge
+image: ghcr.io/prostak011/maxbot_bridge
