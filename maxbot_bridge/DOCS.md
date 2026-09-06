@@ -11,13 +11,19 @@ Home Assistant-аддона. Слушает **все чаты**, распозн�
    `https://github.com/ВАШ_ЛОГИН/maxbot-bridge`.
 2. Установите **MaxBot Bridge** из раздела «Локальные».
 3. Заполните опции:
-   - `max_phone` — ваш номер в MAX (+7XXXXXXXXXX);
+   - `max_phone` — ваш номер в MAX (+7XXXXXXXXXX); нужен для SMS-входа
+   - `auth_method` — способ первого входа: `qr` (по умолчанию) или `sms`
    - `webhook_url` — куда слать конверты (вебхук OpenClaw/n8n);
    - `webhook_token` — общий секрет (заголовок `X-MaxBot-Token`);
    - `approval_chat_id` — чат утверждения (вопросы «кто это?» и ответы).
-4. Запустите аддон. При первой авторизации откройте
-   `http://homeassistant.local:8099/auth` и введите код из SMS.
-   Сессия сохранится в `/data/cache/main.db` и переживёт перезапуски.
+4. Запустите аддон. Откройте **`http://homeassistant.local:8099/auth`**:
+   - **Вход по QR** (рекомендуется): приложение MAX → Настройки → Устройства →
+     сканировать QR. Без SMS и лимитов.
+   - **Вход по SMS**: кнопка «Запросить SMS-код», затем введите код из SMS.
+     Внимание: MAX ограничивает частоту запросов кода — при переподаче
+     подождите 5–10 минут.
+   Выбранный способ сохраняется в `/data`. Сессия — `/data/cache/main.db`,
+   переживает перезапуски; при обновлении аддона повторный вход не нужен.
 
 ## Режим обучения именам
 
@@ -38,9 +44,12 @@ Home Assistant-аддона. Слушает **все чаты**, распозн�
 | Метод | Путь | Описание |
 |---|---|---|
 | GET | `/health` | статус, для watchdog |
-| GET | `/auth` | страница ввода SMS-кода |
-| GET | `/auth/status` | `need_code`, `connected` |
-| POST | `/auth/code` | `{"code": "1234"}` |
+| GET | `/auth` | страница входа (QR + SMS, табы) |
+| GET | `/auth/status` | mode, connected, need_code, qr_url |
+| GET | `/auth/qr.svg` | QR-картинка (SVG) |
+| POST | `/auth/code` | `{"code": "1234"}` — SMS-режим |
+| POST | `/auth/method` | `{"method": "qr"\|"sms"}` — переключить на лету |
+| POST | `/auth/request_code` | запросить новый SMS-код |
 | GET | `/chats` | список чатов с названиями |
 | GET | `/names` | выгрузка people/chats |
 | POST | `/send` | `{"chat_id", "text"}` — отправка в MAX (токен) |

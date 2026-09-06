@@ -35,6 +35,10 @@ class Settings:
         self.log_level: str = str(raw.get("log_level", "INFO")).upper()
         if self.log_level not in VALID_LOG_LEVELS:
             self.log_level = "INFO"
+        # Способ первого входа: "qr" (WebClient, без SMS) или "sms" (Client, TCP)
+        self.auth_method: str = str(raw.get("auth_method", "qr")).lower()
+        if self.auth_method not in {"qr", "sms"}:
+            self.auth_method = "qr"
         try:
             self.http_port: int = int(raw.get("http_port", 8099))
         except (TypeError, ValueError):

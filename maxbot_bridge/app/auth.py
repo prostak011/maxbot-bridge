@@ -1,8 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Провайдеры авторизации pymax.
+"""Провайдеры авторизации pymax: SMS-код и QR.
 
-SMS-код приходит не из консоли, а через веб-страницу аддона:
-пользователь открывает http://<ha>:8099/auth и вводит код из SMS.
+Два способа входа (переключаются на лету через страницу /auth):
+
+- **QR** (по умолчанию): WebQrProvider получает qr_link от QrAuthFlow,
+  страница /auth рисует его как SVG (segno). Пользователь сканирует QR
+  из приложения MAX (Настройки → Устройства). SMS и лимиты не участвуют.
+- **SMS**: WebSmsCodeProvider ждёт код на странице /auth. Код запрашивается
+  при старте клиента без сессии (повторный запрос — через /auth/request_code).
+
 Пароль 2FA (если включён) берётся из опций аддона.
 """
 
@@ -10,8 +16,36 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 log = logging.getLogger("maxbot.auth")
+
+
+class WebQrProvider:
+    """QrHandler-совместимый провайдер: сохраняет qr_link для веб-страницы.
+
+    pymax вызывает show_qr(qr_url) в момент получения QR от сервера.
+    Страница /auth читает qr_url через /auth/status и /auth/qr.svg.
+    """
+
+    def __init__(self) -> None:
+        self.qr_url: str | None = None
+        self.updated_at: float = 0.0
+        self.waiting: bool = False
+
+    async def show_qr(self, qr_url: str) -> None:
+        self.qr_url = qr_url
+        self.updated_at = time.time()
+        self.waiting = True
+        log.info("QR получен — отсканируйте его на странице /auth")
+
+    def reset(self) -> None:
+        self.qr_url = None
+        self.waiting = False
+
+    @property
+    def has_qr(self) -> bool:
+        return bool(self.qr_url)
 
 
 class WebSmsCodeProvider:
