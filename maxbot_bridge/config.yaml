@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration/
 name: MaxBot Bridge
-version: "0.3.1"
+version: "0.3.2"
 slug: maxbot_bridge
 description: >-
   Userbot мессенджера MAX (pymax) как мост к OpenClaw: слушает все чаты,
@@ -25,8 +25,8 @@ map:
 options:
   max_phone: ""
   auth_method: qr
-  webhook_url: ""
-  webhook_token: ""
+  webhook_url: "https://192.168.0.105:18789/hooks/maxbot"
+  webhook_token: "maxbot-secret-2026"
   approval_chat_id: 0
   ignore_chats: []
   auto_reply: false

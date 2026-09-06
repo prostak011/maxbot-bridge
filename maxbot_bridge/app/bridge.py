@@ -146,7 +146,7 @@ class Bridge:
             return None
         headers = {"Content-Type": "application/json"}
         if self.settings.webhook_token:
-            headers["X-MaxBot-Token"] = self.settings.webhook_token
+            headers["Authorization"] = f"Bearer {self.settings.webhook_token}"
         try:
             async with httpx.AsyncClient(timeout=120) as http:
                 resp = await http.post(
