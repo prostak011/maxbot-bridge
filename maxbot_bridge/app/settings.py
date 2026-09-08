@@ -47,6 +47,8 @@ class Settings:
         self.max_phone: str = normalize_phone((raw.get("max_phone") or "").strip())
         self.webhook_url: str = (raw.get("webhook_url") or "").strip().rstrip("/")
         self.webhook_token: str = (raw.get("webhook_token") or "").strip()
+        # Проверка TLS-сертификата webhook (false для self-signed в LAN)
+        self.webhook_verify_ssl: bool = bool(raw.get("webhook_verify_ssl", False))
         # 0 = чат утверждения не задан
         self.approval_chat_id: int | None = (
             int(raw.get("approval_chat_id")) if raw.get("approval_chat_id") else None

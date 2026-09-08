@@ -148,7 +148,9 @@ class Bridge:
         if self.settings.webhook_token:
             headers["Authorization"] = f"Bearer {self.settings.webhook_token}"
         try:
-            async with httpx.AsyncClient(timeout=120) as http:
+            async with httpx.AsyncClient(
+                timeout=120, verify=self.settings.webhook_verify_ssl
+            ) as http:
                 resp = await http.post(
                     self.settings.webhook_url, json=payload, headers=headers
                 )
