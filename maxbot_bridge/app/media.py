@@ -28,10 +28,41 @@ except Exception:  # pragma: no cover — резерв на случай изм�
     FileAttachment = None  # type: ignore
 
 
+import base64
+import logging
+import time
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+SHARE_DIR = Path("/share/media")
+
+
 def _is_photo(attach: Any) -> bool:
     if PhotoAttachment is not None and isinstance(attach, PhotoAttachment):
         return True
     return str(getattr(attach, "type", "")).lower() in {"photo", "image"}
+
+
+def save_to_share(b64_data: str, kind: str) -> str | None:
+    """Сохранить base64-файл на /share/media/<kind>/<ts>.<ext> → путь или None.
+
+    /share — общий маунт Bridge и OpenClaw (map: share:rw в config.yaml).
+    """
+    try:
+        data = base64.b64decode(b64_data)
+        ext = "jpg"
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            ext = "png"
+        d = SHARE_DIR / kind
+        d.mkdir(parents=True, exist_ok=True)
+        fname = "%s_%d.%s" % (kind, int(time.time() * 1000), ext)
+        (d / fname).write_bytes(data)
+        return "/share/media/%s/%s" % (kind, fname)
+    except Exception as exc:
+        log.error("save_to_share: %s", exc)
+        return None
 
 
 def _is_file(attach: Any) -> bool:
@@ -78,13 +109,20 @@ async def extract_files(client: Any, message: Any, max_bytes: int) -> list[dict]
         if _is_photo(attach):
             url = getattr(attach, "base_url", None)
             data = await _download_b64(url, max_bytes) if url else None
-            files.append(
-                {
-                    "type": "photo",
-                    "photo_id": getattr(attach, "photo_id", None),
-                    "base64": data,
-                }
-            )
+            entry: dict = {
+                "type": "photo",
+                "photo_id": getattr(attach, "photo_id", None),
+                "base64": data,
+            }
+            # Фаза 8.3: большие фото НЕ проходят лимит webhook (~256KB).
+            # Сохраняем на /share/media (общий маунт с OpenClaw) и отдаём путь.
+            if data:
+                share_path = save_to_share(data, "photo")
+                if share_path:
+                    entry["share_path"] = share_path
+                    entry.pop("base64", None)  # чтобы конверт влез в лимит
+                    log.info("фото сохранено: %s", share_path)
+            files.append(entry)
             continue
 
         # Файл/видео/голос: нужен временный URL через get_file_by_id

@@ -246,6 +246,12 @@ class Bridge:
                 text = (text + "\n" if text else "") + f"🎤 Голосовое: {stt_block}"
                 log.info("STT: голосовое транскрибировано (%d симв.)", len(stt_block))
 
+            # --- Фото (Фаза 8.3): share_path → в текст конверта ---
+            photo_paths = [f.get("share_path") for f in files if f.get("share_path")]
+            if photo_paths:
+                text = (text + "\n" if text else "") + "📷 Фото: " + ", ".join(photo_paths)
+                log.info("фото через /share: %s", photo_paths)
+
             if not text and not has_files:
                 return
 
