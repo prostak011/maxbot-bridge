@@ -75,6 +75,9 @@ class Settings:
             self.http_port = 8099
         # Сессия pymax живёт в /data/cache (персистентно, попадает в бэкапы HA)
         self.work_dir: str = str(DATA_DIR / "cache")
+        # STT-адаптер (Фаза 8.2): URL OpenAI-совместимого /v1/audio/transcriptions
+        # Пусто = транскрипция выключена. Пример: http://192.168.0.105:3129/v1/audio/transcriptions
+        self.stt_adapter_url: str = (raw.get("stt_adapter_url") or "").strip()
 
     @property
     def webhook_ready(self) -> bool:

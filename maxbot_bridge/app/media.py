@@ -109,6 +109,51 @@ async def extract_files(client: Any, message: Any, max_bytes: int) -> list[dict]
         name = getattr(attach, "name", None) or getattr(attach, "filename", None)
         if name:
             entry["name"] = str(name)
+        # Транскрипция голосовых/аудио через STT-адаптер (Фаза 8.2):
+        # base64 → OpenAI-совместимый /v1/audio/transcriptions → {'text': '...'}
+        if attach_type.lower() in {"voice", "audio"} and data:
+            text = await _transcribe_b64(data)
+            if text:
+                entry["stt_text"] = text
+                log.info("STT: голосовое %s → %d символов", file_id, len(text))
+            else:
+                log.warning("STT не дал текст для %s", file_id)
         files.append(entry)
 
     return files
+
+
+async def _transcribe_b64(b64_data: str, language: str = "ru") -> str | None:
+    """Отправить base64-аудио в STT-адаптер (OpenAI-совместимый /v1/audio/transcriptions) → текст."""
+    try:
+        from .settings import load_settings
+
+        url = load_settings().stt_adapter_url
+    except Exception:
+        url = None
+    if not url:
+        log.debug("STT-адаптер не настроен (stt_adapter_url пуст)")
+        return None
+    try:
+        boundary = "----maxbot-stt"
+        mp = (
+            f"--{boundary}\r\n"
+            f"Content-Disposition: form-data; name=\"file\"; filename=\"voice.ogg\"\r\n"
+            f"Content-Type: audio/ogg\r\n\r\n"
+        ).encode() + base64.b64decode(b64_data) + (
+            f"\r\n--{boundary}\r\n"
+            f"Content-Disposition: form-data; name=\"language\"\r\n\r\n{language}\r\n"
+            f"--{boundary}--\r\n"
+        ).encode()
+        async with httpx.AsyncClient(timeout=120) as http:
+            resp = await http.post(
+                url,
+                content=mp,
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            )
+        if resp.status_code == 200:
+            return str(resp.json().get("text", "")).strip() or None
+        log.warning("STT-адаптер: HTTP %s", resp.status_code)
+    except Exception as exc:
+        log.error("STT-адаптер: %s", exc)
+    return None

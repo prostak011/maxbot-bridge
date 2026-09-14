@@ -236,6 +236,16 @@ class Bridge:
             files = await extract_files(client, message, self.settings.media_max_bytes)
             has_files = any(f.get("base64") for f in files)
 
+            # --- Голосовые (Фаза 8.2): stt_text от STT-адаптера → в текст конверта ---
+            voice_texts = [
+                f.get("stt_text") for f in files
+                if str(f.get("type", "")).lower() in {"voice", "audio"} and f.get("stt_text")
+            ]
+            if voice_texts:
+                stt_block = " ".join(voice_texts)
+                text = (text + "\n" if text else "") + f"🎤 Голосовое: {stt_block}"
+                log.info("STT: голосовое транскрибировано (%d симв.)", len(stt_block))
+
             if not text and not has_files:
                 return
 
