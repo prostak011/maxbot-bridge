@@ -303,11 +303,24 @@ class Bridge:
             for chat in chats or []:
                 cid = getattr(chat, "id", None)
                 title = getattr(chat, "title", None)
-                if cid is None or not title:
+                if cid is None:
                     continue
-                if self.names.chat(cid) is None:
-                    self.names.learn_chat(cid, str(title), source="pymax")
-                known += 1
+                if title:
+                    if self.names.chat(cid) is None:
+                        self.names.learn_chat(cid, str(title), source="pymax")
+                    known += 1
+                elif cid > 0:
+                    # Личный чат без названия: chat_id = user_id → тянем профиль
+                    # человека (Фаза 8.1: автообогащение имён личных чатов)
+                    if self.names.chat(cid) is None:
+                        try:
+                            user = await client.get_user(int(cid))
+                            name = self.names.user_display_name(user)
+                            if name:
+                                self.names.learn_chat(cid, name, source="pymax-user")
+                                self.names.learn_person(cid, name, source="pymax-user")
+                        except Exception as exc:
+                            log.debug("bootstrap личный чат %s: %s", cid, exc)
             log.info("синхронизировано чатов: %d", known)
         except Exception as exc:
             log.warning("fetch_chats: %s", exc)
