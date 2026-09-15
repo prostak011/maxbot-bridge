@@ -212,7 +212,27 @@ class Bridge:
                         f"{learn['id']} = «{learn['name']}»",
                     )
                     return
-                # Иные сообщения из чата утверждения — как управляющие команды
+                # Иные сообщения из чата утверждения — как управляющие команды.
+                # Фаза 8.3: вложения (фото/голос) approval-чата тоже обрабатываем:
+                # фото → /share/media + путь в тексте; голос → STT-текст.
+                approval_files = await extract_files(
+                    client, message, self.settings.media_max_bytes
+                )
+                approval_texts = [
+                    f.get("stt_text")
+                    for f in approval_files
+                    if str(f.get("type", "")).lower() in {"voice", "audio"}
+                    and f.get("stt_text")
+                ]
+                if approval_texts:
+                    text = (text + "\n" if text else "") + (
+                        "🎤 Голосовое: " + " ".join(approval_texts)
+                    )
+                photo_paths = [f.get("share_path") for f in approval_files if f.get("share_path")]
+                if photo_paths:
+                    text = (text + "\n" if text else "") + (
+                        "📷 Фото: " + ", ".join(photo_paths)
+                    )
                 await self.post_webhook(
                     {
                         "type": "approval",
@@ -221,6 +241,7 @@ class Bridge:
                         "from_id": user_id,
                         "from_name": user_name,
                         "text": text,
+                        "files": approval_files,
                         "timestamp": ts(),
                     }
                 )
