@@ -78,6 +78,11 @@ class Settings:
         # STT-адаптер (Фаза 8.2): URL OpenAI-совместимого /v1/audio/transcriptions
         # Пусто = транскрипция выключена. Пример: http://192.168.0.105:3129/v1/audio/transcriptions
         self.stt_adapter_url: str = (raw.get("stt_adapter_url") or "").strip()
+        # Vision-адаптер (Фаза 8.4): URL OpenAI-совместимого /v1/chat/completions
+        # с моделью-визионером (gemma+mmproj на DS1). Пусто = анализ фото выключен.
+        self.vision_url: str = (raw.get("vision_url") or "").strip()
+        self.vision_model: str = (raw.get("vision_model") or "vision").strip()
+        self.vision_timeout: int = int(raw.get("vision_timeout", 90))
 
     @property
     def webhook_ready(self) -> bool:

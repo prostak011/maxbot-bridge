@@ -16,6 +16,7 @@ timestamp — и уходит POST-запросом на WEBHOOK_URL с заго
 
 from __future__ import annotations
 
+import base64
 import asyncio
 import logging
 from typing import Any
@@ -136,6 +137,60 @@ class Bridge:
         except Exception as exc:
             log.error("ошибка send_text(%s): %s", chat_id, exc)
             return False
+
+    # ------------------------------------------------------------------ #
+    # Vision-адаптер (Фаза 8.4): фото → описание через DS1 vision-модель
+    # ------------------------------------------------------------------ #
+    VISION_PROMPT = (
+        "Ты — инструментальщик цеха. На фото инструмент или пластина из рабочего чата. "
+        "1. Определи тип: пластина/фреза/сверло/штангенциркуль/другое. "
+        "2. Прочитай маркировку (артикул, производитель). Не уверен — так и скажи, "
+        "перечисли возможные варианты. "
+        "3. Формат ответа: [ТИП] [АРТИКУЛ] [ПРОИЗВОДИТЕЛЬ] [уверенность: высокая/средняя/низкая]. "
+        "Кратко опиши состояние (новый/изношен) и читаемые надписи. "
+        "Если на фото не инструмент — напиши ЧТО это, одной строкой. По-русски."
+    )
+
+    async def analyze_photo_vision(self, img_b64: str) -> str | None:
+        """Отправить base64-фото в vision-модель DS1, вернуть текстовое описание."""
+        if not self.settings.vision_url:
+            return None
+        try:
+            payload = {
+                "model": self.settings.vision_model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
+                            },
+                            {"type": "text", "text": self.VISION_PROMPT},
+                        ],
+                    }
+                ],
+                "max_tokens": 400,
+                "temperature": 0,
+                "chat_template_kwargs": {"enable_thinking": False},
+            }
+            async with httpx.AsyncClient(timeout=self.settings.vision_timeout) as http:
+                resp = await http.post(
+                    f"{self.settings.vision_url.rstrip('/')}/chat/completions",
+                    json=payload,
+                )
+            if resp.status_code >= 400:
+                log.warning("vision HTTP %s: %s", resp.status_code, resp.text[:200])
+                return None
+            data = resp.json()
+            msg = data["choices"][0]["message"]
+            answer = (msg.get("content") or "").strip()
+            if answer:
+                log.info("vision: %d симв. описания", len(answer))
+            return answer or None
+        except Exception as exc:
+            log.warning("vision-анализ не удался: %s", exc)
+            return None
 
     # ------------------------------------------------------------------ #
     # Вебхук
@@ -272,6 +327,26 @@ class Bridge:
             if photo_paths:
                 text = (text + "\n" if text else "") + "📷 Фото: " + ", ".join(photo_paths)
                 log.info("фото через /share: %s", photo_paths)
+                # Фаза 8.4: vision-анализ фото → описание в конверт
+                if self.settings.vision_url:
+                    for f in files:
+                        img_b64 = f.get("base64")
+                        if not img_b64 and f.get("share_path"):
+                            # base64 вычищен после сохранения в /share — перечитаем файл
+                            try:
+                                from pathlib import Path as _P
+                                p = _P(f["share_path"])
+                                if p.exists():
+                                    raw = p.read_bytes()
+                                    img_b64 = base64.b64encode(raw).decode("ascii")
+                            except Exception as exc:
+                                log.warning("vision: не удалось прочитать %s: %s", f["share_path"], exc)
+                        if img_b64:
+                            descr = await self.analyze_photo_vision(img_b64)
+                            if descr:
+                                text = (text + "\n" if text else "") + (
+                                    "🔍 Распознано на фото: " + descr
+                                )
 
             if not text and not has_files:
                 return
