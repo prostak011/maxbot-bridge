@@ -205,6 +205,7 @@ class HttpApi:
         self.app.router.add_post("/auth/confirm_qr", self.auth_confirm_qr)
         self.app.router.add_get("/chats", self.chats)
         self.app.router.add_get("/names", self.names_dump)
+        self.app.router.add_get("/history", self.history)
         self.app.router.add_post("/send", self.send)
         self.app.router.add_post("/learn", self.learn)
 
@@ -391,6 +392,79 @@ class HttpApi:
             if cid_int not in known_ids:
                 result.append({"id": cid_int, "title": entry["title"], "cached": True})
         return web.json_response({"chats": result})
+
+    async def history(self, request: web.Request) -> web.Response:
+        """Выгрузка истории чата (Фаза A): GET /history?chat_id=...&limit=500.
+
+        Возвращает нормализованные сообщения (с начала). Пагинация по from_time
+        на стороне вызывающего (передавай from=<старейший time в ms> для глубины).
+        """
+        if not self._authorized(request):
+            return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+        client = self.bridge.client
+        if client is None:
+            return web.json_response({"ok": False, "error": "client not ready"}, status=503)
+        try:
+            chat_id = int(request.query.get("chat_id", ""))
+        except ValueError:
+            return web.json_response({"ok": False, "error": "chat_id required"}, status=400)
+        try:
+            limit = min(int(request.query.get("limit", "500")), 2000)
+        except ValueError:
+            limit = 500
+        from_time = request.query.get("from")  # ms epoch, опционально
+        from_ms = int(from_time) if (from_time or "").isdigit() else None
+
+        async def fetch():
+            kwargs = dict(chat_id=chat_id, backward=limit, get_chat=False)
+            if from_ms is not None:
+                kwargs["from_time"] = from_ms
+            return await client.fetch_history(**kwargs)
+
+        import asyncio as _asyncio
+        try:
+            batch = await _asyncio.wait_for(fetch(), timeout=60)
+        except _asyncio.TimeoutError:
+            return web.json_response({"ok": False, "error": "timeout"}, status=504)
+        except Exception as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=502)
+
+        messages = []
+        oldest = None
+        for m in (batch or []):
+            sender = getattr(m, "sender", None)
+            ts = getattr(m, "time", None)
+            if ts is not None and hasattr(ts, "isoformat"):
+                ts_iso = ts.isoformat()
+            else:
+                ts_iso = str(ts) if ts is not None else None
+            attaches = []
+            for a in (getattr(m, "attaches", None) or []):
+                attaches.append(
+                    {
+                        "type": str(getattr(a, "_type", getattr(a, "type", "unknown"))),
+                        "photo_id": getattr(a, "photo_id", None),
+                        "voice_id": getattr(a, "voice_id", None),
+                    }
+                )
+            text = (getattr(m, "text", "") or "").strip()
+            if not text and not attaches:
+                continue
+            messages.append(
+                {
+                    "id": getattr(m, "id", None),
+                    "time": ts_iso,
+                    "sender_id": sender,
+                    "role": "owner" if sender == 236545478 else "other",
+                    "text": text,
+                    "attaches": attaches,
+                }
+            )
+            if ts_iso and (oldest is None or ts_iso < oldest):
+                oldest = ts_iso
+        return web.json_response(
+            {"ok": True, "chat_id": chat_id, "count": len(messages), "oldest": oldest, "messages": messages}
+        )
 
     async def names_dump(self, request: web.Request) -> web.Response:
         return web.json_response(self.names.export())
