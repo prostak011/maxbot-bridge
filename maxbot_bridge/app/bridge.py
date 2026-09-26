@@ -201,15 +201,22 @@ class Bridge:
         """Причина, по которой конверт нельзя отправлять в вебхук (или None)."""
         s = self.settings
         try:
-            if chat_id is not None and int(chat_id) in s.listen_chats:
-                return "listen_chat"
+            cid = int(chat_id) if chat_id is not None else None
         except (TypeError, ValueError):
-            pass
+            cid = None
+        # 1. Рабочие чаты отвечают ВСЕГДА — приоритет выше любого listen-фильтра
+        if cid is not None and cid in s.answer_chats:
+            return None
+        # 2. Явно помеченный чат — только слушать
+        if cid is not None and cid in s.listen_chats:
+            return "listen_chat"
+        # 3. Отправитель из listen_people (личные чаты инженеров/склада)
         try:
             if from_id is not None and int(from_id) in s.listen_people:
                 return "listen_person"
         except (TypeError, ValueError):
             pass
+        # 4. Безымянный чат — по умолчанию только слушать
         if chat_name is None and s.listen_unknown:
             return "unknown_chat"
         return None

@@ -69,6 +69,11 @@ class Settings:
         # Чаты без названия по умолчанию — только слушать (иначе каждый новый
         # безымянный чат дёргает модель и плодит вопросы «Кто это?»).
         self.listen_unknown: bool = bool(raw.get("listen_unknown", True))
+        # РАБОЧИЕ чаты: сюда отвечаем ВСЕГДА, даже если отправитель в listen_people
+        # (иначе прямой вопрос инженера в своём цехе останется без ответа).
+        self.answer_chats: set[int] = {
+            int(c) for c in (raw.get("answer_chats") or [])
+        }
         # Куда складывается накопленный контекст
         self.history_dir: str = str(
             raw.get("history_dir") or "/share/kb/history/maxbot"
