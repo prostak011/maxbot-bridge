@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import base64
 import asyncio
+import json
 import logging
+from pathlib import Path as _Path
 from typing import Any
 
 import httpx
@@ -191,6 +193,59 @@ class Bridge:
         except Exception as exc:
             log.warning("vision-анализ не удался: %s", exc)
             return None
+
+    # ------------------------------------------------------------------ #
+    # LISTEN-ONLY: копим контекст без вызова модели (Фаза B, 26.09)
+    # ------------------------------------------------------------------ #
+    def listen_reason(self, chat_id: Any, from_id: Any, chat_name: str | None) -> str | None:
+        """Причина, по которой конверт нельзя отправлять в вебхук (или None)."""
+        s = self.settings
+        try:
+            if chat_id is not None and int(chat_id) in s.listen_chats:
+                return "listen_chat"
+        except (TypeError, ValueError):
+            pass
+        try:
+            if from_id is not None and int(from_id) in s.listen_people:
+                return "listen_person"
+        except (TypeError, ValueError):
+            pass
+        if chat_name is None and s.listen_unknown:
+            return "unknown_chat"
+        return None
+
+    def append_history(self, envelope: dict, reason: str) -> None:
+        """Дописать конверт в JSONL-дневник контекста. Ошибки не пробрасываем."""
+        try:
+            day = str(envelope.get("timestamp") or ts())[:10]
+            path = f"{self.settings.history_dir}/{day}.jsonl"
+            record = {
+                "ts": envelope.get("timestamp"),
+                "reason": reason,
+                "chat_id": envelope.get("chat_id"),
+                "chat_name": envelope.get("chat_name"),
+                "from_id": envelope.get("from_id"),
+                "from_name": envelope.get("from_name"),
+                "text": (envelope.get("text") or "")[:4000],
+                "files": [
+                    {"type": f.get("type"), "share_path": f.get("share_path")}
+                    for f in (envelope.get("files") or [])
+                    if f.get("share_path") or f.get("type")
+                ],
+            }
+            line = json.dumps(record, ensure_ascii=False)
+            # Двойная запись в файл: основной — history_dir, запасной — /share/maxbot_history
+            for target in (path, f"/share/maxbot_history/{day}.jsonl"):
+                try:
+                    p = _Path(target)
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    with p.open("a", encoding="utf-8") as fh:
+                        fh.write(line + "\n")
+                except Exception as exc:
+                    log.debug("history %s: %s", target, exc)
+            log.info("listen-only (%s) → %s", reason, path)
+        except Exception:
+            log.exception("append_history: ошибка записи контекста")
 
     # ------------------------------------------------------------------ #
     # Вебхук
@@ -373,6 +428,12 @@ class Bridge:
                     "chat_id": getattr(link, "chat_id", None),
                     "text": (getattr(linked, "text", "") or "")[:2000] if linked else None,
                 }
+
+            # --- LISTEN-ONLY: копим контекст, модель не вызываем (Фаза B) ---
+            reason = self.listen_reason(chat_id, user_id, chat_name)
+            if reason:
+                self.append_history(envelope, reason)
+                return
 
             answer = await self.post_webhook(envelope)
 

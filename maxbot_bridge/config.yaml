@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration/
 name: MaxBot Bridge
-version: "0.4.5"
+version: "0.5.0"
 slug: maxbot_bridge
 description: >-
   Userbot мессенджера MAX (pymax) как мост к OpenClaw: слушает все чаты,
@@ -31,6 +31,10 @@ options:
   webhook_verify_ssl: false
   approval_chat_id: 0
   ignore_chats: []
+  listen_chats: []
+  listen_people: []
+  listen_unknown: true
+  history_dir: "/share/kb/history/maxbot"
   auto_reply: false
   max_2fa_password: ""
   media_max_mb: 20
@@ -48,6 +52,12 @@ schema:
   approval_chat_id: int?
   ignore_chats:
     - int?
+  listen_chats:
+    - int?
+  listen_people:
+    - int?
+  listen_unknown: bool?
+  history_dir: str?
   auto_reply: bool?
   max_2fa_password: str?
   media_max_mb: float?

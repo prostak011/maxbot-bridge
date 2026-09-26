@@ -56,6 +56,23 @@ class Settings:
         self.ignore_chats: set[int] = {
             int(c) for c in (raw.get("ignore_chats") or [])
         }
+        # LISTEN-ONLY (Фаза B, 26.09): из этих чатов не отвечаем, но контекст копим
+        # в файл истории — вебхук НЕ вызывается, модель НЕ тратится.
+        self.listen_chats: set[int] = {
+            int(c) for c in (raw.get("listen_chats") or [])
+        }
+        # Слушать по ОТПРАВИТЕЛЮ (личные чаты инженеров/склада), а не по chat_id:
+        # личный чат может появиться позже — фильтр работает сразу по from_id.
+        self.listen_people: set[int] = {
+            int(c) for c in (raw.get("listen_people") or [])
+        }
+        # Чаты без названия по умолчанию — только слушать (иначе каждый новый
+        # безымянный чат дёргает модель и плодит вопросы «Кто это?»).
+        self.listen_unknown: bool = bool(raw.get("listen_unknown", True))
+        # Куда складывается накопленный контекст
+        self.history_dir: str = str(
+            raw.get("history_dir") or "/share/kb/history/maxbot"
+        ).rstrip("/")
         self.auto_reply: bool = bool(raw.get("auto_reply", False))
         self.max_2fa_password: str = (raw.get("max_2fa_password") or "").strip()
         try:

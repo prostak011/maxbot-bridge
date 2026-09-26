@@ -21,8 +21,10 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import time
+from pathlib import Path as _Path
 from typing import Any, Awaitable, Callable
 
 import segno
@@ -206,6 +208,7 @@ class HttpApi:
         self.app.router.add_get("/chats", self.chats)
         self.app.router.add_get("/names", self.names_dump)
         self.app.router.add_get("/history", self.history)
+        self.app.router.add_get("/context", self.context_log)
         self.app.router.add_post("/send", self.send)
         self.app.router.add_post("/learn", self.learn)
 
@@ -392,6 +395,45 @@ class HttpApi:
             if cid_int not in known_ids:
                 result.append({"id": cid_int, "title": entry["title"], "cached": True})
         return web.json_response({"chats": result})
+
+    async def context_log(self, request: web.Request) -> web.Response:
+        """Накопленный контекст listen-only (Фаза B): GET /context?days=1&limit=200.
+
+        Читает JSONL-дневники, которые бридж пишет вместо вызова модели.
+        Нужен агенту, чтобы подтянуть историю чата без обращения к модели.
+        """
+        try:
+            days = max(1, min(30, int(request.query.get("days", "1"))))
+            limit = max(1, min(2000, int(request.query.get("limit", "200"))))
+        except ValueError:
+            return web.json_response({"ok": False, "error": "bad params"}, status=400)
+        base = _Path(self.settings.history_dir)
+        if not base.is_dir():
+            return web.json_response({"ok": True, "records": [], "dir": str(base)})
+        import datetime as _dt
+
+        today = _dt.date.today()
+        records: list[dict] = []
+        for back in range(days):
+            day = (today - _dt.timedelta(days=back)).isoformat()
+            f = base / f"{day}.jsonl"
+            if not f.exists():
+                continue
+            try:
+                for line in f.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        records.append(json.loads(line))
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        records = records[-limit:]
+        return web.json_response(
+            {"ok": True, "count": len(records), "dir": str(base), "records": records}
+        )
 
     async def history(self, request: web.Request) -> web.Response:
         """Выгрузка истории чата (Фаза A): GET /history?chat_id=...&limit=500.
