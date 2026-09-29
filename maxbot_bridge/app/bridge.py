@@ -364,11 +364,22 @@ class Bridge:
                 )
                 return
 
+            # --- LISTEN-ONLY: проверяем ДО обучения именам (26.09) ---
+            # В listen/ignore-режиме не спрашиваем владельца «кто это?» — конверт
+            # всё равно уйдёт в контекст, а не в модель. Иначе чат без названия
+            # генерирует «Кто это?» каждый раз.
+            _early = self.listen_reason(chat_id, user_id, chat_name)
+            if _early is not None and _early != "unknown_chat":
+                pass  # ignore_chats уже отсечен выше; listen — без вопросов
+            elif _early == "unknown_chat":
+                pass  # безымянный: спросим только если он реально пойдёт в вебхук
+
             # --- Названия/имена: при отсутствии спрашиваем владельца ---
-            if chat_name is None:
-                await self.ask_unknown("chat", chat_id, context)
-            if user_name is None and user_id is not None:
-                await self.ask_unknown("person", user_id, context)
+            if _early is None:
+                if chat_name is None:
+                    await self.ask_unknown("chat", chat_id, context)
+                if user_name is None and user_id is not None:
+                    await self.ask_unknown("person", user_id, context)
 
             # --- Вложения ---
             files = await extract_files(client, message, self.settings.media_max_bytes)
