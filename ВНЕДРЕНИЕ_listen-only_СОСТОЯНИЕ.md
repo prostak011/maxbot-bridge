@@ -31,6 +31,50 @@ Bridge **v0.5.1** (state started), Bridge и OpenClaw подняты, `/context`
 - промпт секретаря дополнен блоком «КОНТЕКСТ ИЗ ПРОСЛУШАННЫХ ЧАТОВ» (читает /share/kb/history/maxbot)
 - рестарты Supervisor выполнены дважды; OpenClaw и Bridge подняты
 
+## ✅ 29.09: v0.5.2 собрана, ждёт обновления в UI
+
+`6840110` → CI success. Правка: `listen_reason()` вызывается **до** `ask_unknown`,
+поэтому listen-чаты больше не порождают «❓ Неизвестный чат» в «Отработке».
+Supervisor кэширует версии (показывает 0.5.1) → обновить аддон вручную в UI.
+
+## Исправленные ID чатов (были перестановки цифр!)
+
+| Чат | Было (не работало) | Стало |
+|---|---|---|
+| MAX • Обновления на Android | -77639401405605 | **-77639401429605** |
+| STRATEC | -70754951702517 | **-70754952702517** |
+| Студия 3D-печати 3DБОР | -71029013600461 | **-71029013602461** |
+
+Перед любым изменением списков — сверять с `GET :8099/chats`.
+
+## Скрипт-лукап (29.09)
+
+```bash
+/config/clawd/.venv/bin/python /share/kb/bin/vz_lookup.py "пластина CNMG 120408"
+```
+
+Выдаёт ЗАПАС (ГТМС) → АНАЛОГИ (по посадке) → ВЗ (номер/автор/вариант/кол-во) →
+маршруты поиска. Дату отгрузки не публикует. Лог запросов: `/share/kb/bin/vz_lookup.log`.
+Кэш: `/share/kb/cache/vz_index.json` (пересборка: `--rebuild`).
+
+**Важно:** openpyxl есть только в `/config/clawd/.venv/bin/python`.
+Системный `python3` в контейнере НЕ содержит openpyxl — рецепты с `python3` падают.
+
+## Фильтр мусора в курьере (29.09)
+
+`courier.py` не создаёт черновик для служебных текстов агента
+(`NO_REPLY`, `No action required`, `Routine group chat message`,
+`Photo of ... shared in a group chat`, `subagent has completed`).
+Отброшенное пишется в `/config/clawd/junk_skipped.log`.
+Русские формулы («не адресовано секретарю») намеренно НЕ фильтруются —
+они встречаются и в нормальных ответах.
+
+Перезапуск курьера (внутри контейнера OpenClaw!):
+```bash
+sudo docker exec app_17e0cc66_openclaw_assistant \
+  sh -c 'pkill -f "clawd/courier.py"; setsid python3 /config/clawd/courier.py > /tmp/courier_stdout.log 2>&1 &'
+```
+
 ## Что ещё не встало: v0.5.1 (`answer_chats`)
 
 Коммит `2b676b2` собран (CI success), но Supervisor **кэширует список репозиториев

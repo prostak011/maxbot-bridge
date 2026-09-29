@@ -105,6 +105,9 @@ class Settings:
         self.vision_url: str = (raw.get("vision_url") or "").strip()
         self.vision_model: str = (raw.get("vision_model") or "vision").strip()
         self.vision_timeout: int = int(raw.get("vision_timeout", 90))
+        # Анализировать ли фото в listen-режиме (чат, куда мы не отвечаем).
+        # По умолчанию НЕТ: vision стоит ~12 с на фото, а ответа не будет.
+        self.vision_in_listen: bool = bool(raw.get("vision_in_listen", False))
 
     @property
     def webhook_ready(self) -> bool:

@@ -197,6 +197,9 @@ class Bridge:
     # ------------------------------------------------------------------ #
     # LISTEN-ONLY: копим контекст без вызова модели (Фаза B, 26.09)
     # ------------------------------------------------------------------ #
+    def _is_listen(self, chat_id: Any, from_id: Any, chat_name: str | None) -> bool:
+        return self.listen_reason(chat_id, from_id, chat_name) is not None
+
     def listen_reason(self, chat_id: Any, from_id: Any, chat_name: str | None) -> str | None:
         """Причина, по которой конверт нельзя отправлять в вебхук (или None)."""
         s = self.settings
@@ -400,8 +403,10 @@ class Bridge:
             if photo_paths:
                 text = (text + "\n" if text else "") + "📷 Фото: " + ", ".join(photo_paths)
                 log.info("фото через /share: %s", photo_paths)
-                # Фаза 8.4: vision-анализ фото → описание в конверт
-                if self.settings.vision_url:
+                # Фаза 8.4: vision-анализ фото → описание в конверт.
+                # В listen-режиме НЕ анализируем: на эти фото никто не ответит,
+                # а vision стоит ~12 с на фото (сообщение из 9 фото = ~1,5 минуты GPU).
+                if self.settings.vision_url and not self._is_listen(chat_id, user_id, chat_name):
                     for f in files:
                         img_b64 = f.get("base64")
                         if not img_b64 and f.get("share_path"):
